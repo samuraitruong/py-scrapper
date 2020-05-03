@@ -1,7 +1,7 @@
 
 from args import args
 from lib.http import http
-from lib.fs import fs
+from lib.fs import FileStorage
 from lib.parser import HtmlParser
 from threading import Lock
 from lib.logger import logger
@@ -20,6 +20,7 @@ lock2 = Lock()
 parsed = urlparse(args.url)
 
 Db.create_db(parsed.netloc, args.force)
+fs = FileStorage(args.url, args.output)
 
 
 def run_in_threads(data, action, thread_count):
@@ -49,12 +50,12 @@ def run_in_threads(data, action, thread_count):
 def download_resource(url):
     try:
         # logger.debug("Downloading :" + url)
-        exist_filename = fs.get_exist_file_name(args.output, url)
+        exist_filename = fs.get_exist_file_name(url)
         if(exist_filename):
             logger.warn("file is existed: " + exist_filename)
             return exist_filename
         content = http.get_blob(url)
-        out_path = fs.save_blob(args.output, url, content)
+        out_path = fs.save_blob(url, content)
         logger.info('RESOURCE: %s => %s' % (url, out_path))
         Db.add_done_item(url)
         return out_path
@@ -72,7 +73,6 @@ def crawl_page(url):
         html = http.get_html(url)
         html_links = HtmlParser.get_links(args.url, html)
         resource_links = HtmlParser.get_resource_urls(args.url, html)
-
         lock.acquire()
         unique_links = list(set(html_links) - set(visited_links))
         visited_links = visited_links + unique_links
@@ -86,14 +86,14 @@ def crawl_page(url):
         downloaded_links = downloaded_links + unique_resource_links
         lock2.release()
         if args.download_resources == True:
-            resources = dict([(resource_url, fs.get_filename_from_url(args.output, resource_url))
+            resources = dict([(resource_url, fs.get_filename_from_url(resource_url))
                               for resource_url in resource_links])
             html = HtmlParser.replace_resource_url(resources, html)
 
             for resource_link in unique_resource_links:
                 resource_queue.tasks.download_resource(resource_link)
 
-        output_path = fs.save_html(args.output, url, html)
+        output_path = fs.save_html(url, html)
         logger.info('HTML : %s -> %s' % (url, output_path))
         Db.add_done_item(url)
         return output_path
@@ -118,8 +118,8 @@ html_queue = get_queue(html_queue_url)
 
 res_queue_url = "memory://res"
 resource_pool = create_worker_pool(
-    html_queue_url, args.resource_threads, timeout=2)
-resource_queue = get_queue(html_queue_url)
+    res_queue_url, args.resource_threads, timeout=2)
+resource_queue = get_queue(res_queue_url)
 
 html_queue.tasks.crawl_page(args.url)
 while(True):
