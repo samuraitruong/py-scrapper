@@ -2,3 +2,4 @@ requests
 pyquery
 tinydb
 coloredlogs
+worq

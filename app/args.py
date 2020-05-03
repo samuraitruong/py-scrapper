@@ -13,9 +13,8 @@ parser.add_argument('--resource-threads', type=int, default=5,  required=False,
 parser.add_argument('--force', type=bool, default=False,  required=False,
                     help='Remove history and download everything again ')
 
-
-# parser.add_argument('--sum', dest='accumulate', action='store_const',
-#                     const=sum, default=max,
-#                     help='sum the integers (default: find the max)')
+parser.add_argument('--download_resources', type=bool, default=True,  required=False,
+                    help='Download images, js, css, and other files ')
 
 args = parser.parse_args()
+print(args)
