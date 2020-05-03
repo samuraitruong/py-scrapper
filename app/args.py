@@ -4,7 +4,7 @@ parser = argparse.ArgumentParser(description='Website scrapper info.')
 
 parser.add_argument('--url', type=str,  help='Url of website')
 parser.add_argument('--output', type=str,
-                    required=False, help='Output folder')
+                    required=True, help='Set the target folder to store crawl data (html + others)')
 parser.add_argument('--threads', type=int, default=5,  required=False,
                     help='Number of threads to run to fetch html page in concurences')
 parser.add_argument('--resource-threads', type=int, default=5,  required=False,

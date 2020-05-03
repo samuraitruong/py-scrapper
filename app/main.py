@@ -47,15 +47,19 @@ def run_in_threads(data, action, thread_count):
 
 @ts.task
 def download_resource(url):
-    # logger.debug("Downloading :" + url)
-    exist_filename = fs.get_exist_file_name(args.output, url)
-    if(exist_filename):
-        return exist_filename
-    content = http.get_blob(url)
-    out_path = fs.save_blob(args.output, url, content)
-    logger.info('RESOURCE: %s => %s' % (url, out_path))
-    Db.add_done_item(url)
-    return out_path
+    try:
+        # logger.debug("Downloading :" + url)
+        exist_filename = fs.get_exist_file_name(args.output, url)
+        if(exist_filename):
+            logger.warn("file is existed: " + exist_filename)
+            return exist_filename
+        content = http.get_blob(url)
+        out_path = fs.save_blob(args.output, url, content)
+        logger.info('RESOURCE: %s => %s' % (url, out_path))
+        Db.add_done_item(url)
+        return out_path
+    except Exception as err:
+        logger.error('error download resource %r' % (err))
 
 
 @ts.task
@@ -64,33 +68,37 @@ def crawl_page(url):
     global downloaded_links
     global html_queue
     global resource_queue
+    try:
+        html = http.get_html(url)
+        html_links = HtmlParser.get_links(args.url, html)
+        resource_links = HtmlParser.get_resource_urls(args.url, html)
 
-    html = http.get_html(url)
-    html_links = HtmlParser.get_links(args.url, html)
-    resource_links = HtmlParser.get_resource_urls(args.url, html)
+        lock.acquire()
+        unique_links = list(set(html_links) - set(visited_links))
+        visited_links = visited_links + unique_links
+        Db.add_links(unique_links)
+        for l in unique_links:
+            html_queue.tasks.crawl_page(l)
+        lock.release()
+        lock2.acquire()
+        unique_resource_links = list(
+            set(resource_links) - set(downloaded_links))
+        downloaded_links = downloaded_links + unique_resource_links
+        lock2.release()
+        if args.download_resources == True:
+            resources = dict([(resource_url, fs.get_filename_from_url(args.output, resource_url))
+                              for resource_url in resource_links])
+            html = HtmlParser.replace_resource_url(resources, html)
 
-    lock.acquire()
-    unique_links = list(set(html_links) - set(visited_links))
-    visited_links = visited_links + unique_links
-    for l in unique_links:
-        html_queue.tasks.crawl_page(l)
-    lock.release()
+            for resource_link in unique_resource_links:
+                resource_queue.tasks.download_resource(resource_link)
 
-    lock2.acquire()
-    unique_resource_links = list(set(resource_links) - set(downloaded_links))
-    downloaded_links = downloaded_links + unique_resource_links
-    lock2.release()
-    if args.download_resources == True:
-        resources = dict([(resource_url, fs.get_filename_from_url(args.output, resource_url))
-                          for resource_url in resource_links])
-        html = HtmlParser.replace_resource_url(resources, html)
-        for resource_link in unique_resource_links:
-            resource_queue.tasks.download_resource(resource_link)
-
-    output_path = fs.save_html(args.output, url, html)
-    logger.info('HTML : %s -> %s' % (url, output_path))
-    Db.add_done_item(url)
-    return output_path
+        output_path = fs.save_html(args.output, url, html)
+        logger.info('HTML : %s -> %s' % (url, output_path))
+        Db.add_done_item(url)
+        return output_path
+    except Exception as err:
+        logger.error(err)
 
 
 def create_worker_pool(queue_url, thread_count, **kw):
@@ -115,10 +123,13 @@ resource_queue = get_queue(html_queue_url)
 
 html_queue.tasks.crawl_page(args.url)
 while(True):
-    time.sleep(10)
+    time.sleep(30)
     if len(html_queue) == 0 and len(resource_queue) == 0:
         html_pool.stop()
         resource_pool.stop()
         logger.info(' ------> FINISHED <-----')
 
         exit(0)
+    else:
+        logger.info('Current Queue: HTML = %d, Resources = %d' %
+                    (len(html_queue), len(resource_queue)))
